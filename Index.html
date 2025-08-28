@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Hive Puzzle</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Telegram Mini App SDK (safe to include; used if opened inside Telegram) -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <style>
+    :root {
+      /* Responsive tile size: up to 50px, scales down on small screens */
+      --tile: min(11.5vw, 50px);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+      background-size: 400% 400%;
+      animation: gradientMove 14s ease infinite;
+      color: white;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      touch-action: manipulation;
+    }
+    @keyframes gradientMove {
+      0% {background-position: 0% 50%}
+      50% {background-position: 100% 50%}
+      100% {background-position: 0% 50%}
+    }
+
+    #scoreboard {
+      margin-bottom: 20px;
+      padding: 10px 20px;
+      border-radius: 12px;
+      background: rgba(0,0,0,.55);
+      box-shadow: 0 6px 16px rgba(0,0,0,.25);
+      font-weight: 700;
+      font-size: 18px;
+    }
+
+    #board {
+      display: grid;
+      grid-template-columns: repeat(8, var(--tile));
+      grid-template-rows: repeat(8, var(--tile));
+      gap: 4px;
+    }
+    .tile {
+      width: var(--tile);
+      height: var(--tile);
+      border-radius: 8px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: calc(var(--tile) * 0.5);
+      font-weight: bold;
+      background: #ffffff33;
+      cursor: pointer;
+      transition: transform .15s ease;
+    }
+    .tile:active { transform: scale(0.98); }
+    .tile.selected {
+      outline: 3px solid yellow;
+      transform: scale(1.06);
+    }
+
+    #reward {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.65);
+      z-index: 30;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    #reward .card {
+      width: min(92vw, 480px);
+      background: #ffffff;
+      border-radius: 18px;
+      padding: 28px 22px;
+      text-align: center;
+      box-shadow: 0 12px 28px rgba(0,0,0,.25);
+      color: black;
+    }
+    #reward h2 { margin: 0 0 10px; }
+    #reward .codes {
+      margin-top: 10px;
+      padding: 12px;
+      background: #f6f7fb;
+      border: 1px solid #e6e8f0;
+      border-radius: 12px;
+      line-height: 1.6;
+      font-weight: 700;
+    }
+    #reward button {
+      margin-top: 18px;
+      font-size: 16px;
+      padding: 12px 18px;
+      border: 0;
+      border-radius: 10px;
+      background: #2563eb;
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 8px 18px rgba(37, 99, 235, .35);
+    }
+  </style>
+</head>
+<body>
+  <div id="scoreboard"></div>
+  <div id="board"></div>
+
+  <div id="reward" role="dialog" aria-modal="true" aria-labelledby="rewardTitle">
+    <div class="card">
+      <h2 id="rewardTitle">🎉 Congratulations!</h2>
+      <p>You reached the goal.</p>
+      <p>Here are your reward details:</p>
+      <div class="codes">
+        Reference: <b>PHdL189</b>
+      </div>
+      <button id="claimBtn">Claim Your Reward</button>
+    </div>
+  </div>
+
+  <script>
+    // --- Telegram Mini App setup (safe no-op in normal browsers)
+    (function initTelegram() {
+      try {
+        if (window.Telegram && Telegram.WebApp) {
+          Telegram.WebApp.ready();
+          Telegram.WebApp.expand(); // use full height if possible
+          // Optional theming:
+          Telegram.WebApp.setHeaderColor('secondary_bg_color');
+        }
+      } catch (e) { /* ignore */ }
+    })();
+
+    const boardSize = 8;
+    const symbols = ["₿","U","Ð","Λ","✦"]; // crypto-ish icons
+    let score = 0;
+
+    // Set the goal to a short "few minutes" target.
+    const goal = 200;
+
+    const scoreboard = document.getElementById('scoreboard');
+    const board = document.getElementById('board');
+    const rewardOverlay = document.getElementById('reward');
+    const claimBtn = document.getElementById('claimBtn');
+
+    function updateScoreboard() {
+      scoreboard.textContent = `Score: ${score} / ${goal}`;
+    }
+
+    function randomSymbol() {
+      return symbols[Math.floor(Math.random()*symbols.length)];
+    }
+
+    function createBoard() {
+      board.innerHTML = "";
+      for (let i=0;i<boardSize*boardSize;i++) {
+        const tile = document.createElement('div');
+        tile.className = "tile";
+        tile.textContent = randomSymbol();
+        tile.dataset.index = i;
+        tile.addEventListener('click', () => selectTile(tile));
+        board.appendChild(tile);
+      }
+      updateScoreboard();
+    }
+
+    let firstTile = null;
+
+    function selectTile(tile) {
+      if (!firstTile) {
+        firstTile = tile;
+        tile.classList.add('selected');
+      } else if (firstTile === tile) {
+        firstTile.classList.remove('selected');
+        firstTile = null;
+      } else {
+        swapTiles(firstTile, tile);
+        firstTile.classList.remove('selected');
+        firstTile = null;
+      }
+    }
+
+    function swapTiles(tile1, tile2) {
+      const tmp = tile1.textContent;
+      tile1.textContent = tile2.textContent;
+      tile2.textContent = tmp;
+      checkMatches();
+    }
+
+    function checkMatches() {
+      let matched = [];
+      const tiles = document.querySelectorAll('.tile');
+
+      // Rows
+      for (let r=0;r<boardSize;r++) {
+        for (let c=0;c<boardSize-2;c++) {
+          const i = r*boardSize + c;
+          if (tiles[i].textContent &&
+              tiles[i].textContent === tiles[i+1].textContent &&
+              tiles[i].textContent === tiles[i+2].textContent) {
+            matched.push(i,i+1,i+2);
+          }
+        }
+      }
+      // Cols
+      for (let c=0;c<boardSize;c++) {
+        for (let r=0;r<boardSize-2;r++) {
+          const i = r*boardSize + c;
+          if (tiles[i].textContent &&
+              tiles[i].textContent === tiles[i+boardSize].textContent &&
+              tiles[i].textContent === tiles[i+2*boardSize].textContent) {
+            matched.push(i,i+boardSize,i+2*boardSize);
+          }
+        }
+      }
+
+      if (matched.length > 0) {
+        matched = [...new Set(matched)];
+        matched.forEach(i => { tiles[i].textContent = randomSymbol(); });
+        score += matched.length;
+        updateScoreboard();
+        if (score >= goal) endGame();
+      }
+    }
+
+    function endGame() {
+      rewardOverlay.style.display = 'flex';
+      scoreboard.style.display = 'none';
+    }
+
+    function openRewardLink() {
+      const url = 'https://coinhivex.co/en/home.htm'; // your reward destination
+      // If inside Telegram, use the official API to open links:
+      if (window.Telegram && Telegram.WebApp && Telegram.WebApp.openLink) {
+        Telegram.WebApp.openLink(url);
+      } else {
+        window.open(url, '_blank');
+      }
+    }
+
+    claimBtn.addEventListener('click', openRewardLink);
+
+    // Start
+    createBoard();
+  </script>
+</body>
+</html>
